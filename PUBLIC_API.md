@@ -13,7 +13,7 @@ __constructor(
 
 Option indexes are zero-based and follow constructor order. The ordered voter list must exactly match the canonical snapshot committed to this repository.
 
-`initial_votes` imports previously cast votes in their original order. It may be empty. Every imported address must be eligible and unique, and every option must be valid. Imported weights are always read from `eligible_voters`; the caller cannot supply or alter them. Imported voters are immediately subject to the same `AlreadyVoted` rule as voters who call `vote` after deployment.
+`initial_votes` imports previously cast votes in their original order. It may be empty. Every imported address must be eligible and unique, and every option must be valid. Imported weights are always read from `eligible_voters`; the caller cannot supply or alter them. An imported voter may later authenticate a change through `vote`.
 
 ## Methods
 
@@ -28,7 +28,15 @@ get_voters(option: u32, start: u32, limit: u32) -> Vec<Address>
 extend_state()
 ```
 
+`vote` always applies the voter's full immutable allocation. A first call creates the vote and increases global participation. A call selecting a different option moves the existing weight and voter-list entry without changing global participation. A call selecting the current option is idempotent and does not change vote state.
+
 `get_allocation` returns zero for an ineligible address. `get_voters` returns an empty vector when `start` is at or beyond the list length; `limit` must be 1–100.
+
+## Events
+
+- A first vote publishes `vote(voter, option, shares)`.
+- A changed vote publishes `vote_changed(voter, previous_option, option, shares)`.
+- Re-selecting the current option does not publish a vote event.
 
 ## Return types
 
@@ -77,8 +85,9 @@ struct VoteResults {
 | 1405 | `InvalidAllocation` | Non-positive voting weight |
 | 1406 | `DuplicateEligibleHolder` | Address occurs more than once |
 | 1407 | `IneligibleVoter` | Address has no positive snapshot allocation |
-| 1408 | `AlreadyVoted` | Address already cast its one vote |
+| 1408 | `AlreadyVoted` | Duplicate address in constructor-provided initial votes |
 | 1409 | `InvalidOptionIndex` | Choice index is out of bounds |
 | 1410 | `InvalidPage` | Voter page limit is zero or over 100 |
 | 1411 | `Overflow` | Checked arithmetic failed or an invariant bound was exceeded |
 | 1412 | `InvalidSnapshot` | Total or allocation digest differs from the canonical snapshot |
+| 1413 | `InvalidVoteState` | Stored vote aggregates or voter lists are internally inconsistent |

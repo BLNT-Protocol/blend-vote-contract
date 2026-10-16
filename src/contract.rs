@@ -66,7 +66,32 @@ fn require_option(e: &Env, option: u32, count: u32) {
     }
 }
 
-fn record_vote(e: &Env, voter: Address, option: u32) -> VoteRecord {
+enum VoteAction {
+    Cast,
+    Changed(u32),
+    Unchanged,
+}
+
+fn remove_voter(e: &Env, voters: &Vec<Address>, voter: &Address) -> Vec<Address> {
+    let mut updated = Vec::new(e);
+    let mut found = false;
+    for listed_voter in voters.iter() {
+        if listed_voter == *voter {
+            if found {
+                panic_with_error!(e, VoteError::InvalidVoteState);
+            }
+            found = true;
+        } else {
+            updated.push_back(listed_voter);
+        }
+    }
+    if !found {
+        panic_with_error!(e, VoteError::InvalidVoteState);
+    }
+    updated
+}
+
+fn record_vote(e: &Env, voter: &Address, option: u32) -> (VoteRecord, VoteAction) {
     storage::extend_instance(e);
     let config = storage::get_config(e);
     require_option(e, option, config.options.len());
@@ -77,8 +102,63 @@ fn record_vote(e: &Env, voter: Address, option: u32) -> VoteRecord {
         .get(voter.clone())
         .unwrap_or_else(|| panic_with_error!(e, VoteError::IneligibleVoter));
     let mut votes = storage::get_votes(e);
-    if votes.contains_key(voter.clone()) {
-        panic_with_error!(e, VoteError::AlreadyVoted);
+    if let Some(previous) = votes.get(voter.clone()) {
+        if previous.shares != shares {
+            panic_with_error!(e, VoteError::InvalidVoteState);
+        }
+        if previous.option == option {
+            return (previous, VoteAction::Unchanged);
+        }
+
+        let record = VoteRecord { option, shares };
+        votes.set(voter.clone(), record.clone());
+
+        let mut option_shares = storage::get_option_shares(e);
+        let prior_option_shares = option_shares
+            .get(previous.option)
+            .unwrap_or_else(|| panic_with_error!(e, VoteError::InvalidOptionIndex))
+            .checked_sub(shares)
+            .filter(|value| *value >= 0)
+            .unwrap_or_else(|| panic_with_error!(e, VoteError::InvalidVoteState));
+        let new_option_shares = option_shares
+            .get(option)
+            .unwrap_or_else(|| panic_with_error!(e, VoteError::InvalidOptionIndex))
+            .checked_add(shares)
+            .unwrap_or_else(|| panic_with_error!(e, VoteError::Overflow));
+        option_shares.set(previous.option, prior_option_shares);
+        option_shares.set(option, new_option_shares);
+
+        let mut option_voter_counts = storage::get_option_voter_counts(e);
+        let prior_option_voter_count = option_voter_counts
+            .get(previous.option)
+            .unwrap_or_else(|| panic_with_error!(e, VoteError::InvalidOptionIndex))
+            .checked_sub(1)
+            .unwrap_or_else(|| panic_with_error!(e, VoteError::InvalidVoteState));
+        let new_option_voter_count = option_voter_counts
+            .get(option)
+            .unwrap_or_else(|| panic_with_error!(e, VoteError::InvalidOptionIndex))
+            .checked_add(1)
+            .unwrap_or_else(|| panic_with_error!(e, VoteError::Overflow));
+        option_voter_counts.set(previous.option, prior_option_voter_count);
+        option_voter_counts.set(option, new_option_voter_count);
+
+        let prior_option_voters =
+            remove_voter(e, &storage::get_option_voters(e, previous.option), voter);
+        let mut new_option_voters = storage::get_option_voters(e, option);
+        for listed_voter in new_option_voters.iter() {
+            if listed_voter == *voter {
+                panic_with_error!(e, VoteError::InvalidVoteState);
+            }
+        }
+        new_option_voters.push_back(voter.clone());
+
+        storage::set_votes(e, &votes);
+        storage::set_option_shares(e, &option_shares);
+        storage::set_option_voter_counts(e, &option_voter_counts);
+        storage::set_option_voters(e, previous.option, &prior_option_voters);
+        storage::set_option_voters(e, option, &new_option_voters);
+
+        return (record, VoteAction::Changed(previous.option));
     }
 
     let record = VoteRecord { option, shares };
@@ -110,7 +190,7 @@ fn record_vote(e: &Env, voter: Address, option: u32) -> VoteRecord {
         .unwrap_or_else(|| panic_with_error!(e, VoteError::Overflow));
 
     let mut option_voters = storage::get_option_voters(e, option);
-    option_voters.push_back(voter);
+    option_voters.push_back(voter.clone());
 
     storage::set_votes(e, &votes);
     storage::set_option_shares(e, &option_shares);
@@ -119,7 +199,7 @@ fn record_vote(e: &Env, voter: Address, option: u32) -> VoteRecord {
     storage::set_total_voted_shares(e, total_voted_shares);
     storage::set_total_voters(e, total_voters);
 
-    record
+    (record, VoteAction::Cast)
 }
 
 #[contractimpl]
@@ -251,10 +331,17 @@ impl BlendVoteContract {
         storage::extend_instance(&e);
     }
 
-    /// Casts all of `voter`'s immutable snapshot shares for one option.
+    /// Casts all of `voter`'s immutable snapshot shares for one option, or
+    /// moves an existing vote to a different option.
     pub fn vote(e: Env, voter: Address, option: u32) -> VoteRecord {
-        let record = record_vote(&e, voter.clone(), option);
-        events::vote(&e, voter, option, record.shares);
+        let (record, action) = record_vote(&e, &voter, option);
+        match action {
+            VoteAction::Cast => events::vote(&e, voter, option, record.shares),
+            VoteAction::Changed(previous_option) => {
+                events::vote_changed(&e, voter, previous_option, option, record.shares)
+            }
+            VoteAction::Unchanged => {}
+        }
         record
     }
 
@@ -335,7 +422,7 @@ impl BlendVoteContract {
         }
     }
 
-    /// Returns voters in cast order. `limit` must be between 1 and 100.
+    /// Returns current voters in option-entry order. `limit` must be between 1 and 100.
     pub fn get_voters(e: Env, option: u32, start: u32, limit: u32) -> Vec<Address> {
         storage::extend_instance(&e);
         let config = storage::get_config(&e);
@@ -364,7 +451,10 @@ impl BlendVoteContract {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::{testutils::Address as _, vec};
+    use soroban_sdk::{
+        testutils::{Address as _, Events as _},
+        vec,
+    };
 
     const SNAPSHOT: &str =
         include_str!("../snapshot/comet_cpal_flattened_ownership_before_41c898a1.csv");
@@ -475,19 +565,97 @@ mod tests {
     }
 
     #[test]
-    fn each_holder_can_vote_only_once() {
+    fn holder_can_change_vote_without_changing_participation() {
         let fixture = Fixture::create(true);
         let client = fixture.client();
         client.vote(&fixture.alice, &0);
-        assert!(client.try_vote(&fixture.alice, &1).is_err());
+        client.vote(&fixture.bob, &0);
+
         assert_eq!(
-            client.get_results().total_voted_shares,
-            fixture.alice_shares
+            client.vote(&fixture.alice, &1),
+            VoteRecord {
+                option: 1,
+                shares: fixture.alice_shares,
+            }
+        );
+
+        let contract_events = fixture
+            .e
+            .events()
+            .all()
+            .filter_by_contract(&fixture.contract);
+        assert_eq!(
+            contract_events.events().last().unwrap(),
+            &events::vote_changed_xdr(
+                &fixture.e,
+                &fixture.contract,
+                fixture.alice.clone(),
+                0,
+                1,
+                fixture.alice_shares,
+            )
+        );
+
+        let results = client.get_results();
+        assert_eq!(
+            results.total_voted_shares,
+            fixture.alice_shares + fixture.bob_shares
+        );
+        assert_eq!(results.total_voters, 2);
+        assert_eq!(results.options.get(0).unwrap().shares, fixture.bob_shares);
+        assert_eq!(results.options.get(0).unwrap().voter_count, 1);
+        assert_eq!(results.options.get(1).unwrap().shares, fixture.alice_shares);
+        assert_eq!(results.options.get(1).unwrap().voter_count, 1);
+        assert_eq!(client.get_vote(&fixture.alice).unwrap().option, 1);
+        assert_eq!(
+            client.get_voters(&0, &0, &100),
+            vec![&fixture.e, fixture.bob.clone()]
+        );
+        assert_eq!(
+            client.get_voters(&1, &0, &100),
+            vec![&fixture.e, fixture.alice.clone()]
         );
     }
 
     #[test]
-    fn constructor_imports_votes_without_auth_and_blocks_a_second_vote() {
+    fn voting_for_the_same_option_is_idempotent() {
+        let fixture = Fixture::create(true);
+        let client = fixture.client();
+        client.vote(&fixture.alice, &0);
+        let results_before = client.get_results();
+        let voters_before = client.get_voters(&0, &0, &100);
+        let events_before = fixture
+            .e
+            .events()
+            .all()
+            .filter_by_contract(&fixture.contract)
+            .events()
+            .len();
+
+        assert_eq!(
+            client.vote(&fixture.alice, &0),
+            VoteRecord {
+                option: 0,
+                shares: fixture.alice_shares,
+            }
+        );
+
+        assert_eq!(client.get_results(), results_before);
+        assert_eq!(client.get_voters(&0, &0, &100), voters_before);
+        assert_eq!(
+            fixture
+                .e
+                .events()
+                .all()
+                .filter_by_contract(&fixture.contract)
+                .events()
+                .len(),
+            events_before
+        );
+    }
+
+    #[test]
+    fn constructor_imports_votes_without_auth_and_allows_changes_with_auth() {
         let e = Env::default();
         let allocations = canonical_allocations(&e);
         let (alice, alice_shares) = allocations.get(0).unwrap();
@@ -511,10 +679,27 @@ mod tests {
         assert_eq!(client.get_vote(&alice).unwrap().option, 0);
         assert_eq!(client.get_vote(&bob).unwrap().option, 1);
         assert_eq!(client.get_voters(&0, &0, &100), vec![&e, alice.clone()]);
-        assert_eq!(client.get_voters(&1, &0, &100), vec![&e, bob]);
+        assert_eq!(client.get_voters(&1, &0, &100), vec![&e, bob.clone()]);
+
+        assert!(client.try_vote(&alice, &1).is_err());
 
         e.mock_all_auths();
-        assert!(client.try_vote(&alice, &1).is_err());
+        client.vote(&alice, &1);
+        let updated_results = client.get_results();
+        assert_eq!(updated_results.total_voters, 2);
+        assert_eq!(
+            updated_results.total_voted_shares,
+            alice_shares + bob_shares
+        );
+        assert_eq!(updated_results.options.get(0).unwrap().shares, 0);
+        assert_eq!(updated_results.options.get(0).unwrap().voter_count, 0);
+        assert_eq!(
+            updated_results.options.get(1).unwrap().shares,
+            alice_shares + bob_shares
+        );
+        assert_eq!(updated_results.options.get(1).unwrap().voter_count, 2);
+        assert_eq!(client.get_voters(&0, &0, &100), vec![&e]);
+        assert_eq!(client.get_voters(&1, &0, &100), vec![&e, bob, alice]);
     }
 
     #[test]
@@ -601,7 +786,7 @@ mod tests {
     }
 
     #[test]
-    fn voters_are_public_and_paginated_in_cast_order() {
+    fn voters_are_public_and_paginated_in_option_entry_order() {
         let fixture = Fixture::create(true);
         let client = fixture.client();
         client.vote(&fixture.alice, &1);

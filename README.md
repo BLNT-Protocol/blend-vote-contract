@@ -9,9 +9,9 @@ This repository includes the pre-incident ownership snapshot, a deterministic ma
 - A contract instance represents one proposal.
 - The proposal text, two or more option labels, and eligible allocations are fixed in the constructor.
 - Construction succeeds only when the ordered allocation list exactly matches the committed canonical snapshot digest, holder count, and total.
-- An eligible address authenticates one vote for one option.
+- An eligible address authenticates its vote for one option and may later move that vote to another option.
 - A deployment can initialize previously cast votes without new voter authorization. Each imported address must be eligible and unique, and its weight is derived from the same immutable snapshot allocation.
-- The contract automatically uses that address's entire snapshot allocation. Partial voting and vote changes are not supported.
+- The contract automatically uses that address's entire snapshot allocation. Partial voting is not supported.
 - Votes and voter addresses are public.
 - Results report both the percentage of votes cast and the percentage of all eligible shares. Percentages are truncated to seven decimal places.
 - There is no administrator, upgrade method, deadline, or binding execution mechanism.
@@ -19,6 +19,8 @@ This repository includes the pre-incident ownership snapshot, a deterministic ma
 This is a public signaling mechanism, not binding on-chain governance. Contract addresses in the snapshot remain eligible, but can vote only if their authorization design can satisfy Soroban `require_auth`.
 
 ## Deployments
+
+The deployments below use the immutable original contract and do not support changing an existing vote. Enabling vote changes requires a new contract deployment.
 
 - Stellar mainnet: [`CAKGN5UT4H2YDSOPS6IIBRFBWS4GCIL2KJLHRYZT65MZ22OH74Q4HF43`](https://lab.stellar.org/r/mainnet/contract/CAKGN5UT4H2YDSOPS6IIBRFBWS4GCIL2KJLHRYZT65MZ22OH74Q4HF43) — initialized with the preserved V2.1 adoption votes; deployment details are recorded in [`deployments/mainnet.json`](deployments/mainnet.json).
 - Stellar mainnet, YieldBlox Security Council emitter migration poll: [`CDENWJWD3O2OICPWKUG7WNYLBKKX6BC5KA7NAF3KDFNK3R7E5EMPLG75`](https://lab.stellar.org/r/mainnet/contract/CDENWJWD3O2OICPWKUG7WNYLBKKX6BC5KA7NAF3KDFNK3R7E5EMPLG75) — initialized with the preserved emitter-migration votes; deployment details are recorded in [`deployments/mainnet-yieldblox-emitter-migration.json`](deployments/mainnet-yieldblox-emitter-migration.json).
@@ -55,11 +57,11 @@ The constructor accepts:
 
 `eligible_voters` must contain the 434 positive allocations in the exact CSV order. The contract derives its allocation digest and rejects any omission, reordering, address change, or weight change. The source CSV SHA-256 and canonical allocation digest are compiled into the contract and returned by `get_config()`.
 
-`initial_votes` contains `(voter, option)` pairs in original cast order. Construction rejects an ineligible address, duplicate address, or invalid option. Imported votes initialize the same records, per-option totals, voter lists, and global totals as live votes, so an imported voter receives `AlreadyVoted` if it attempts to vote again. Use an empty vector for a new poll without prior votes.
+`initial_votes` contains `(voter, option)` pairs in original cast order. Construction rejects an ineligible address, duplicate address, or invalid option. Imported votes initialize the same records, per-option totals, voter lists, and global totals as live votes. An imported voter may retain that choice or authenticate a later change through `vote`. Use an empty vector for a new poll without prior votes.
 
 The primary methods are:
 
-- `vote(voter, option)` — authenticates `voter` and casts all of its snapshot shares once.
+- `vote(voter, option)` — authenticates `voter`, casts all of its snapshot shares, or moves its existing vote to another option.
 - `get_config()` — proposal, choices, snapshot hash, eligible shares, and holder count.
 - `get_allocation(holder)` and `get_vote(holder)` — individual snapshot and vote records.
 - `get_results()` — totals, participation, and per-option weighted results.

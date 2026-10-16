@@ -17,7 +17,7 @@ Construction succeeds only when:
 - every initial vote identifies an eligible address and a configured option; and
 - no address occurs more than once in the initial vote list.
 
-The digest is calculated over the UTF-8 domain `blend-vote-snapshot-v1`, followed by each positive CSV row's 56-byte ASCII address and signed i128 big-endian raw share count. The proposal, options, snapshot hashes, allocation map, eligible total, and eligible holder count are immutable after construction. Each valid initial vote creates the same vote record and updates the same option and global aggregates as a live vote, but construction does not require fresh authorization from a voter whose prior vote is being migrated.
+The digest is calculated over the UTF-8 domain `blend-vote-snapshot-v1`, followed by each positive CSV row's 56-byte ASCII address and signed i128 big-endian raw share count. The proposal, options, snapshot hashes, allocation map, eligible total, and eligible holder count are immutable after construction. Each valid initial vote performs the same first-vote state transition as a live vote, but construction does not require fresh authorization from a voter whose prior vote is being migrated. An imported voter may later authenticate a change through `vote`.
 
 ## Vote transition
 
@@ -26,21 +26,26 @@ For `vote(voter, option)` to succeed:
 1. `option` must identify a configured choice.
 2. `voter.require_auth()` must succeed.
 3. `voter` must have a positive constructor allocation.
-4. `voter` must not already have a vote record.
 
-The transition atomically creates the vote record, adds the full immutable allocation to the option and global totals, increments voter counts, stores the address at the next index in the option's voter list, and publishes a `vote` event. Any failure rolls back the entire transition.
+If the voter has no vote record, the transition atomically creates one, adds the full immutable allocation to the option and global totals, increments voter counts, stores the address at the end of the option's voter list, and publishes a `vote` event.
 
-Constructor-imported votes perform the same state transition in supplied order without publishing new vote events. Any invalid imported vote rolls back construction.
+If the voter already selected the requested option, the call returns the existing record without changing vote state or publishing a vote event.
+
+If the voter selected a different option, the transition atomically subtracts its immutable allocation and voter count from the previous option, removes the address from the previous option's voter list, adds the same allocation and voter count to the new option, appends the address to the new option's voter list, updates the vote record, and publishes a `vote_changed` event containing both option indexes. Global voted shares and voter count do not change. The transition validates the existing allocation, totals, counts, and voter-list membership before committing its updates.
+
+Any failure rolls back the entire transition.
+
+Constructor-imported votes perform the first-vote state transition in supplied order without publishing new vote events. Duplicate addresses are invalid. Any invalid imported vote rolls back construction.
 
 ## Invariants
 
-- Each address has at most one vote record.
+- Each address has at most one current vote record.
 - A vote record's weight equals the address's constructor allocation.
 - `total_voted_shares` equals the sum of all option share totals.
 - `total_voters` equals the sum of all option voter counts.
 - Voted shares never exceed total eligible shares.
 - Voter count never exceeds eligible holder count.
-- Option voter lists preserve successful vote order.
+- Each option voter list contains exactly its current voters, ordered by their most recent entry into that option.
 - There are no external contract calls other than Soroban authorization handling.
 
 ## Result arithmetic

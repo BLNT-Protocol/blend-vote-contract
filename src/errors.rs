@@ -17,4 +17,5 @@ pub enum VoteError {
     InvalidPage = 1410,
     Overflow = 1411,
     InvalidSnapshot = 1412,
+    InvalidVoteState = 1413,
 }
