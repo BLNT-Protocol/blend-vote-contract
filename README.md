@@ -20,10 +20,10 @@ This is a public signaling mechanism, not binding on-chain governance. Contract 
 
 ## Deployments
 
-The deployments below use the immutable original contract and do not support changing an existing vote. Enabling vote changes requires a new contract deployment.
+The mainnet deployments below preserve the votes from the preceding mainnet polls and allow each eligible voter to authenticate a later change through `vote`.
 
-- Stellar mainnet: [`CAKGN5UT4H2YDSOPS6IIBRFBWS4GCIL2KJLHRYZT65MZ22OH74Q4HF43`](https://lab.stellar.org/r/mainnet/contract/CAKGN5UT4H2YDSOPS6IIBRFBWS4GCIL2KJLHRYZT65MZ22OH74Q4HF43) — initialized with the preserved V2.1 adoption votes; deployment details are recorded in [`deployments/mainnet.json`](deployments/mainnet.json).
-- Stellar mainnet, YieldBlox Security Council emitter migration poll: [`CDENWJWD3O2OICPWKUG7WNYLBKKX6BC5KA7NAF3KDFNK3R7E5EMPLG75`](https://lab.stellar.org/r/mainnet/contract/CDENWJWD3O2OICPWKUG7WNYLBKKX6BC5KA7NAF3KDFNK3R7E5EMPLG75) — initialized with the preserved emitter-migration votes; deployment details are recorded in [`deployments/mainnet-yieldblox-emitter-migration.json`](deployments/mainnet-yieldblox-emitter-migration.json).
+- Stellar mainnet: [`CACJYBB4Y5NP72VC27BFKSBSKFVGU5V5Y7XQRHT6WIQBZAXZLUY33N6P`](https://lab.stellar.org/r/mainnet/contract/CACJYBB4Y5NP72VC27BFKSBSKFVGU5V5Y7XQRHT6WIQBZAXZLUY33N6P) — initialized with the preserved V2.1 adoption votes; deployment details are recorded in [`deployments/mainnet.json`](deployments/mainnet.json).
+- Stellar mainnet, YieldBlox Security Council emitter migration poll: [`CAIMUU7Z3LYFO5LIIVLD52US5O3SHGJSRAJIE2D4TSWCWPXJORBYJZLF`](https://lab.stellar.org/r/mainnet/contract/CAIMUU7Z3LYFO5LIIVLD52US5O3SHGJSRAJIE2D4TSWCWPXJORBYJZLF) — initialized with the preserved emitter-migration votes; deployment details are recorded in [`deployments/mainnet-yieldblox-emitter-migration.json`](deployments/mainnet-yieldblox-emitter-migration.json).
 - Stellar testnet: [`CDYNFIK2GSAI2WRPQPDLD5LSTWJWILNSFGBZIMPB3AAWI5E4TDL5N2XJ`](https://lab.stellar.org/r/testnet/contract/CDYNFIK2GSAI2WRPQPDLD5LSTWJWILNSFGBZIMPB3AAWI5E4TDL5N2XJ) — deployment details are recorded in [`deployments/testnet.json`](deployments/testnet.json).
 - Stellar testnet, YieldBlox Security Council emitter migration poll: [`CCE4NO4AIZ4FVNWZQDFYVGTTLJ3D2ZXFMUILTJF6L22E3TXOWLSLHNNX`](https://lab.stellar.org/r/testnet/contract/CCE4NO4AIZ4FVNWZQDFYVGTTLJ3D2ZXFMUILTJF6L22E3TXOWLSLHNNX) — deployment details are recorded in [`deployments/testnet-yieldblox-emitter-migration.json`](deployments/testnet-yieldblox-emitter-migration.json).
 
@@ -44,7 +44,7 @@ One zero-weight CSV row is retained for provenance but excluded from constructor
 
 ## Imported votes
 
-The mainnet polls were initialized with votes captured from the public testnet contracts through ledger `5,060,182`. The current source tree does not retain voter-level migration data. The deployment records retain the source contract, aggregate totals, and a SHA-256 commitment to the ordered `(voter, option)` constructor input. Imported votes and voter addresses remain publicly inspectable through the deployed contracts.
+The current mainnet polls were initialized with votes captured from the preceding public mainnet contracts through ledger `64,981,167`. The current source tree does not retain voter-level migration data. The deployment records retain the source contract, aggregate totals, and a SHA-256 commitment to the ordered `(voter, option)` constructor input. Imported votes and voter addresses remain publicly inspectable through the deployed contracts.
 
 ## Contract interface
 
