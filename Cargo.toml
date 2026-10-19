@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.91.1"
 license = "AGPL-3.0"
 description = "Snapshot-weighted, non-binding governance polls for Blend"
-repository = "https://github.com/Blend-V2-1/blend-vote-contract"
+repository = "https://github.com/BLNT-Protocol/blend-vote-contract"
 publish = false
 
 [lib]
